@@ -11,6 +11,7 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from utils import accuracy, ProgressMeter, AverageMeter
+import numpy as np
 
 from repvgg import get_RepVGG_func_by_name
 
@@ -85,16 +86,23 @@ def validate(val_loader, model, criterion, use_gpu):
 
     # switch to evaluate mode
     model.eval()
-
+    warm_up = 5
+    time_spent = []
     with torch.no_grad():
         end = time.time()
         for i, (images, target) in enumerate(val_loader):
             if use_gpu:
                 images = images.cuda(non_blocking=True)
                 target = target.cuda(non_blocking=True)
-
+            if i > warm_up:
+                start = time.time()
             # compute output
             output = model(images)
+
+            torch.cuda.synchronize()
+            if i > warm_up:
+                time_spent.append(time.time() - start)
+
             loss = criterion(output, target)
 
             # measure accuracy and record loss
@@ -109,9 +117,12 @@ def validate(val_loader, model, criterion, use_gpu):
 
             if i % 10 == 0:
                 progress.display(i)
+                if i > warm_up:
+                    print("time_per_batch:", time_spent[-1])
 
         print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
               .format(top1=top1, top5=top5))
+        print('Avg execution time (ms): {:.5f}'.format(np.mean(time_spent)))
 
     return top1.avg
 
